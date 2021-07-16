@@ -1,0 +1,181 @@
+---
+title: "Text Classification"
+author: "Odelia_10611810000033"
+date: "7/5/2021"
+output: 
+  html_document:
+    toc: True
+    toc_depth: 1
+    number_sections: true
+    toc_float:
+      collapsed: false
+---
+<style>
+body{
+font-family: Times New Roman;
+text-align: justify;
+}
+</style>
+
+Text mining atau data mining merupakan proses penemuan pengetahuan menggunakan *Natural Language Processing* (NLP) dengan cara menggali informasi dari sebuah data berformat teks. Sedangkan, Klasifikasi merupakan proses pembelajaran sebuah fungsi atau model terhadap sekumpulan data latih, sehingga model tersebut dapat digunakan untuk memprediksi klasifikasi dari data uji. Ada berbagai macam metode klasifikasi contohnya *Naive Bayes*, *Support Vector Machine* (SVM), *Random Forest*, dan lain-lain. Ada pula beberapa jurnal yang mengatakan bahwa metode klasifikasi menggunakan *Random Forest* memiliki nilai akurasi yang lebih tinggi dibanding metode lainnya, jurnal-jurnal tersebut adalah Nalatissifa, dkk (2021), Himawan dan Eliyani (2021), dan Hartmann, dkk (2019) sehingga pada penelitian ini menggunakan metode *Random Forest*. Data penelitian menggunakan data [Women's E-Commerce Clothing Reviews](https://www.kaggle.com/nicapotato/womens-ecommerce-clothing-reviews) dari [kaggle.com](https://www.kaggle.com/) dengan 2 klasifikasi yaitu merekomendasi dan tidak merekomendasi. Library yang digunakan adalah sebagai berikut.
+```{r, collapse=T, warning=FALSE}
+library(dplyr)
+library(knitr) #kable
+library(kableExtra) #kable_styling
+library(tokenizers) #tokenisasi
+library(stringr) #str
+library(SnowballC) #untuk wordstem
+library(tidytext) #unnest tokens
+library(tm) #tdm
+library(randomForest) #randomforest
+library(rebus.base) #or
+or()
+```
+
+```{r}
+df <- read.csv("D:/MDTT/Womens Clothing E-Commerce Reviews.csv", sep = ",")
+str(df)
+```
+
+Variabel yang digunakan pada analisis adalah X sebagai ID, Review.Text, dan Recommended.IND dimana 1 adalah recommended dan 0 adalah not recommended.
+```{r}
+df_review <- df[,c(1,5,7)]
+kable(head(df_review,3), 
+      caption ="<center>Tabel 1. Data Review</center>", 
+      format = "html", align = 'ccc') %>% 
+  kable_styling(bootstrap_options = "bordered", full_width = FALSE)
+```
+
+Langkah-langkah dalam analisis klasifikasi ini adalah sebagai berikut.
+
+1. *Preprocessing*: Cleaning Data, Stopwords, Tokenisasi, Stemming, membuat *document term matrix* (dtm), serta mebentuk data 80% data training dan 20% data testing.
+
+2. Membentuk model dan prediksi
+
+3. Tabel Klasifikasi
+
+4. Menghitung akurasi model.
+
+# Preprocessing - Cleaning Data
+Cleaning data dilakukan dengan menghapus username, hastag, link, angka, tanda baca, double white space, dan mengubah ke lower case. Review yang telah bersih dimasukkan ke variabel baru yang bernama text_clean.
+```{r}
+# menghapus username
+df_review$text_clean <- str_replace_all(df_review$Review.Text,
+                                        pattern=or("@\\w*: ","@\\w*"),
+                                        replacement = "")
+# menghapus hastag
+df_review$text_clean <- str_replace_all(df_review$text_clean,
+                                       pattern="#\\w*",
+                                       replacement = "")
+# menghapus link
+df_review$text_clean <- str_replace_all(df_review$text_clean,
+                                       pattern=or("https:.*","http:.*"),
+                                       replacement = "")
+# menghapus angka
+df_review$text_clean <- str_replace_all(df_review$text_clean,
+                                       pattern="\\d+\\w*",
+                                       replacement = "")
+# menghapus tanda baca
+df_review$text_clean <- str_replace_all(df_review$text_clean,
+                                       pattern="[^[:alnum:][:space:]]",
+                                       replacement = "")
+# menghapus double white space
+df_review$text_clean <- str_squish(df_review$text_clean)
+# menghubah ke lower case
+df_review$text_clean <- str_to_lower(df_review$text_clean)
+kable(head(df_review,3), 
+      caption ="<center>Tabel 2. Data Clean</center>", 
+      format = "html", align = 'cccc') %>% 
+  kable_styling(bootstrap_options = "bordered", full_width = FALSE)
+```
+
+# Preprocessing - Stopwords
+
+Stopwords dilakukan untuk menghapus kata-kata yang kurang memiliki arti penting dalam kalimat. Kata-kata stopwords menggunakan file tersendiri yang berisikan kata-kata dari bahasa indonesia dan bahasa inggris, file tersebut dapat dilihat pada [stopwords_ind_eng](https://drive.google.com/file/d/1kOn8cwCMFFQxp3tThKi8N9oDXPtiFZ0O/view?usp=sharing). Setelah kalimat-kalimat tersebut distopwords kemudian diletakkan ke dalam variabel baru yang bernama teks_clean2.
+
+```{r}
+stopwords_ind_eng <- readLines("D:/MDTT/stop_words_ind_eng.txt")
+df_tokens <- tokenize_words(df_review$text_clean, stopwords = stopwords_ind_eng)
+clean_word <- NULL
+for(i in 1:23486){
+  clean_word <- c(clean_word, paste(df_tokens[[i]], collapse=" "))
+}
+df_review$text_clean2 <- clean_word
+kable(head(df_review[,c(1,3,4,5)],3), 
+      caption ="<center>Tabel 3. Data Clean2</center>", 
+      format = "html", align = 'cccc') %>% 
+  kable_styling(bootstrap_options = "bordered", full_width = FALSE)
+```
+
+# Preprocessing - Tokenisasi dan Stemming
+
+Tokenisasi adalah mengubah kalimat menjadi per kata sedangkan stemming adalah menggubah kata menjadi kata dasar. Tokenisasi menggunakan fungsi unnest_tokens sedangkan stemming menggunakan wordStem.
+```{r}
+df_token <- df_review %>%
+  unnest_tokens(output="word", token = "words", input = text_clean2) %>%
+  mutate(word = wordStem(word))
+kable(head(df_token[,c(1,3,4,5)],3), 
+      caption ="<center>Tabel 4. Data Token</center>", 
+      format = "html", align = 'cccc') %>% 
+  kable_styling(bootstrap_options = "bordered", full_width = FALSE)
+```
+
+# Preprocessing - Document Term Matrix
+
+Pembuatan DTM digunakan untuk memboboti kata-kata yang telah ditokenisasi dengan TF IDF. *Term Frequency — Inverse Document Frequency* atau TF — IDF adalah suatu metode algoritma yang berguna untuk menghitung bobot setiap kata yang umum digunakan. Setelah mendapatkan DTM, dilakukan removeSpareTerms untuk menghapus dimensi yang memiliki persentase nilai 0 minimal 95%.
+```{r}
+dtm <- df_token %>%
+  count(X, word) %>%
+  cast_dtm(document = X, term = word,
+           value = n, weighting = weightTfIdf)
+dtm1 <- removeSparseTerms(dtm, sparse = 0.95)
+```
+
+# Preprocessing - Data Training dan Testing
+
+Penelitian ini menggunakan 80% data training dan 20% data testing. Menggunakan fungsi set.seed agar sampel yang digunakan tidak berubah.
+```{r}
+sample_size <- floor(0.8*nrow(dtm1))
+set.seed(111)
+train_ind <- sample(nrow(dtm1),
+                    size = sample_size)
+train <- dtm1[train_ind,]
+test <- dtm1[-train_ind,]
+```
+
+# Membentuk Model dan Prediksi
+
+Membentuk model klasifikasi menggunakan metode randomForest dengan menggunakan variabel Recommended.IND sebagai Y dan data training yang telah dibentuk sebagai X dimana ntree sebesar 1000.
+```{r}
+train_rf <- randomForest(x = as.data.frame(as.matrix(train)),
+                         y = as.factor(df_review$Recommended.IND[train_ind]), ntree = 1000)
+pred_rf <- predict(train_rf, as.data.frame(as.matrix(test)))
+```
+
+# Tabel Klasifikasi
+Tabel klasifikasi menunjukkan berapa frekuensi data tepat dan salah diprediksi.
+```{r}
+## Membuat confusion matrix
+c_matrix <- table(Rekomendasi = as.factor(df_review$Recommended.IND[-train_ind]), prediksi = pred_rf)
+c_matrix
+```
+
+# Akurasi Model
+Akurasi model dilakukan untuk menghitung berapa besar persentase hasil prediksi dengan data aktualnya.
+
+$%akurasi = (n11+n22)\div\Sigma(nij)$
+
+```{r}
+# Menghitung akurasi
+sum(diag(c_matrix))/sum(c_matrix)
+```
+
+
+# Daftar Pustaka
+
+[Nalatissifa, H., Gata, W., Diantika, S., & Nisa, K. (2021). "Perbandingan Kinerja Algoritma Klasifikasi Naive Bayes, Support Vector Machine (SVM), dan Random Forest untuk Prediksi Ketidakhadiran di Tempat Kerja".  *Jurnal Informatika Universitas Pamulang*, 5(4).](http://www.openjournal.unpam.ac.id/index.php/informatika/article/view/7575)
+
+[Himawan, R. D., & Eliyani, E. (2021). "Perbandingan Akurasi Analisis Sentimen Tweet terhadap Pemerintah Provinsi DKI Jakarta di Masa Pandemi". *JEPIN (Jurnal Edukasi dan Penelitian Informatika)*, 7(1).](https://jurnal.untan.ac.id/index.php/jepin/article/view/41728)
+
+[Hartmann, J., Huppertz, J., Schamp, C., & Heitmann, M. (2019). "Comparing automated text classification methods". *International Journal of Research in Marketing*, 36(1).](https://www.sciencedirect.com/science/article/pii/S0167811618300545)
+
